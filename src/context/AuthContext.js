@@ -1,7 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db } from '../config/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { initDatabase, loginParent as dbLoginParent, loginStaff as dbLoginStaff } from '../config/database';
 
 const AuthContext = createContext({});
 
@@ -9,10 +8,26 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [userType, setUserType] = useState(null); // 'parent', 'staff', 'admin'
   const [loading, setLoading] = useState(true);
+  const [dbReady, setDbReady] = useState(false);
 
   useEffect(() => {
-    loadStoredUser();
+    initializeApp();
   }, []);
+
+  const initializeApp = async () => {
+    try {
+      // Initialize database
+      await initDatabase();
+      setDbReady(true);
+
+      // Load stored user
+      await loadStoredUser();
+    } catch (error) {
+      console.error('Error initializing app:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadStoredUser = async () => {
     try {
@@ -24,23 +39,12 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Error loading stored user:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
   const loginParent = async (mobile, pin) => {
     try {
-      const parentsRef = collection(db, 'parents');
-      const q = query(parentsRef, where('mobile', '==', mobile), where('pin', '==', pin));
-      const querySnapshot = await getDocs(q);
-
-      if (querySnapshot.empty) {
-        throw new Error('Invalid mobile number or PIN');
-      }
-
-      const parentDoc = querySnapshot.docs[0];
-      const parentData = { id: parentDoc.id, ...parentDoc.data() };
+      const parentData = await dbLoginParent(mobile, pin);
 
       await AsyncStorage.setItem('kmc_user', JSON.stringify(parentData));
       await AsyncStorage.setItem('kmc_user_type', 'parent');
@@ -55,16 +59,7 @@ export const AuthProvider = ({ children }) => {
 
   const loginStaff = async (username, password) => {
     try {
-      const staffRef = collection(db, 'staff');
-      const q = query(staffRef, where('username', '==', username), where('password', '==', password));
-      const querySnapshot = await getDocs(q);
-
-      if (querySnapshot.empty) {
-        throw new Error('Invalid username or password');
-      }
-
-      const staffDoc = querySnapshot.docs[0];
-      const staffData = { id: staffDoc.id, ...staffDoc.data() };
+      const staffData = await dbLoginStaff(username, password);
       const type = staffData.isAdmin ? 'admin' : 'staff';
 
       await AsyncStorage.setItem('kmc_user', JSON.stringify(staffData));
@@ -94,6 +89,7 @@ export const AuthProvider = ({ children }) => {
       user,
       userType,
       loading,
+      dbReady,
       loginParent,
       loginStaff,
       logout,

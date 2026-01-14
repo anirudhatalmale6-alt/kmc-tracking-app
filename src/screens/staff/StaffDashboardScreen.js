@@ -12,9 +12,12 @@ import {
 import { Card } from '../../components';
 import { COLORS, SIZES } from '../../config/theme';
 import { useAuth } from '../../context/AuthContext';
-import { db } from '../../config/firebase';
-import { collection, query, getDocs, where, Timestamp } from 'firebase/firestore';
-import { formatDurationText, getTodayRange, getWeekRange } from '../../utils/helpers';
+import {
+  getAllBabies,
+  getTodaySessionsByBaby,
+  getWeekSessionsByBaby,
+} from '../../config/database';
+import { formatDurationText } from '../../utils/helpers';
 
 const StaffDashboardScreen = ({ navigation }) => {
   const { user, userType, logout } = useAuth();
@@ -37,23 +40,20 @@ const StaffDashboardScreen = ({ navigation }) => {
   const loadData = async () => {
     try {
       // Load all babies
-      const babiesRef = collection(db, 'babies');
-      const babiesSnapshot = await getDocs(babiesRef);
-      const babiesData = [];
+      const babiesData = await getAllBabies();
+      const babiesWithStats = [];
 
-      for (const babyDoc of babiesSnapshot.docs) {
-        const babyData = { id: babyDoc.id, ...babyDoc.data() };
-
+      for (const baby of babiesData) {
         // Get KMC stats for each baby
-        const stats = await getBabyKMCStats(babyDoc.id);
-        babiesData.push({ ...babyData, ...stats });
+        const stats = await getBabyKMCStats(baby.id);
+        babiesWithStats.push({ ...baby, ...stats });
       }
 
-      setBabies(babiesData);
+      setBabies(babiesWithStats);
 
       // Calculate overall stats
-      const lowKMCCount = babiesData.filter((b) => b.todayKMC < 3600000).length; // Less than 1 hour
-      setOverallStats({ totalBabies: babiesData.length, lowKMC: lowKMCCount });
+      const lowKMCCount = babiesWithStats.filter((b) => b.todayKMC < 3600000).length; // Less than 1 hour
+      setOverallStats({ totalBabies: babiesWithStats.length, lowKMC: lowKMCCount });
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -64,36 +64,18 @@ const StaffDashboardScreen = ({ navigation }) => {
 
   const getBabyKMCStats = async (babyId) => {
     try {
-      const sessionsRef = collection(db, 'sessions');
-      const { start: todayStart, end: todayEnd } = getTodayRange();
-      const { start: weekStart, end: weekEnd } = getWeekRange();
-
       // Today's KMC
-      const todayQuery = query(
-        sessionsRef,
-        where('babyId', '==', babyId),
-        where('startTime', '>=', Timestamp.fromDate(todayStart)),
-        where('startTime', '<=', Timestamp.fromDate(todayEnd))
-      );
-      const todaySnapshot = await getDocs(todayQuery);
+      const todaySessions = await getTodaySessionsByBaby(babyId);
       let todayKMC = 0;
-      todaySnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.duration) todayKMC += data.duration;
+      todaySessions.forEach((session) => {
+        if (session.duration) todayKMC += session.duration;
       });
 
       // Week's KMC
-      const weekQuery = query(
-        sessionsRef,
-        where('babyId', '==', babyId),
-        where('startTime', '>=', Timestamp.fromDate(weekStart)),
-        where('startTime', '<=', Timestamp.fromDate(weekEnd))
-      );
-      const weekSnapshot = await getDocs(weekQuery);
+      const weekSessions = await getWeekSessionsByBaby(babyId);
       let weekKMC = 0;
-      weekSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.duration) weekKMC += data.duration;
+      weekSessions.forEach((session) => {
+        if (session.duration) weekKMC += session.duration;
       });
 
       return { todayKMC, weekKMC };
@@ -190,7 +172,7 @@ const StaffDashboardScreen = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>Staff Dashboard</Text>
+          <Text style={styles.headerTitle}>Niloufer KMC</Text>
           <Text style={styles.headerSubtitle}>
             {user?.name || 'Staff'} {userType === 'admin' ? '(Admin)' : ''}
           </Text>
@@ -237,7 +219,7 @@ const StaffDashboardScreen = ({ navigation }) => {
       <FlatList
         data={filteredBabies}
         renderItem={renderBabyCard}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
@@ -248,7 +230,6 @@ const StaffDashboardScreen = ({ navigation }) => {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyEmoji}>👶</Text>
             <Text style={styles.emptyText}>No babies found</Text>
           </View>
         }
@@ -427,10 +408,6 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: 60,
-  },
-  emptyEmoji: {
-    fontSize: 60,
-    marginBottom: 16,
   },
   emptyText: {
     fontSize: SIZES.medium,

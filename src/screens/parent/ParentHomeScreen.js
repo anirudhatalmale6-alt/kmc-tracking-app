@@ -11,25 +11,15 @@ import {
 import { Button, Card } from '../../components';
 import { COLORS, SIZES, SHADOWS } from '../../config/theme';
 import { useAuth } from '../../context/AuthContext';
-import { db } from '../../config/firebase';
 import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  updateDoc,
-  doc,
-  Timestamp,
-  orderBy,
-  limit,
-} from 'firebase/firestore';
-import {
-  formatDuration,
-  formatDurationText,
-  getTodayRange,
-  getWeekRange,
-} from '../../utils/helpers';
+  getBabyById,
+  startSession,
+  stopSession,
+  getActiveSession,
+  getTodaySessionsByParent,
+  getWeekSessionsByParent,
+} from '../../config/database';
+import { formatDuration, formatDurationText } from '../../utils/helpers';
 
 const ParentHomeScreen = ({ navigation }) => {
   const { user, logout } = useAuth();
@@ -43,9 +33,7 @@ const ParentHomeScreen = ({ navigation }) => {
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    loadBabyDetails();
-    loadSessionStats();
-    checkActiveSession();
+    loadData();
   }, []);
 
   useEffect(() => {
@@ -66,20 +54,21 @@ const ParentHomeScreen = ({ navigation }) => {
     };
   }, [isRunning]);
 
-  const loadBabyDetails = async () => {
+  const loadData = async () => {
     try {
+      // Load baby details
       if (user?.babyId) {
-        const babiesRef = collection(db, 'babies');
-        const q = query(babiesRef, where('__name__', '==', user.babyId));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          const babyDoc = querySnapshot.docs[0];
-          setBaby({ id: babyDoc.id, ...babyDoc.data() });
-        }
+        const babyData = await getBabyById(user.babyId);
+        setBaby(babyData);
       }
+
+      // Load session stats
+      await loadSessionStats();
+
+      // Check for active session
+      await checkActiveSession();
     } catch (error) {
-      console.error('Error loading baby details:', error);
+      console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
@@ -87,37 +76,19 @@ const ParentHomeScreen = ({ navigation }) => {
 
   const loadSessionStats = async () => {
     try {
-      const sessionsRef = collection(db, 'sessions');
-      const { start: todayStart, end: todayEnd } = getTodayRange();
-      const { start: weekStart, end: weekEnd } = getWeekRange();
-
       // Get today's sessions
-      const todayQuery = query(
-        sessionsRef,
-        where('parentId', '==', user.id),
-        where('startTime', '>=', Timestamp.fromDate(todayStart)),
-        where('startTime', '<=', Timestamp.fromDate(todayEnd))
-      );
-      const todaySnapshot = await getDocs(todayQuery);
+      const todaySessions = await getTodaySessionsByParent(user.id);
       let todayMs = 0;
-      todaySnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.duration) todayMs += data.duration;
+      todaySessions.forEach((session) => {
+        if (session.duration) todayMs += session.duration;
       });
       setTodayTotal(todayMs);
 
       // Get week's sessions
-      const weekQuery = query(
-        sessionsRef,
-        where('parentId', '==', user.id),
-        where('startTime', '>=', Timestamp.fromDate(weekStart)),
-        where('startTime', '<=', Timestamp.fromDate(weekEnd))
-      );
-      const weekSnapshot = await getDocs(weekQuery);
+      const weekSessions = await getWeekSessionsByParent(user.id);
       let weekMs = 0;
-      weekSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.duration) weekMs += data.duration;
+      weekSessions.forEach((session) => {
+        if (session.duration) weekMs += session.duration;
       });
       setWeekTotal(weekMs);
     } catch (error) {
@@ -127,21 +98,10 @@ const ParentHomeScreen = ({ navigation }) => {
 
   const checkActiveSession = async () => {
     try {
-      const sessionsRef = collection(db, 'sessions');
-      const q = query(
-        sessionsRef,
-        where('parentId', '==', user.id),
-        where('isActive', '==', true),
-        limit(1)
-      );
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        const sessionDoc = querySnapshot.docs[0];
-        const sessionData = { id: sessionDoc.id, ...sessionDoc.data() };
-        setCurrentSession(sessionData);
-
-        const startTime = sessionData.startTime.toDate();
+      const activeSession = await getActiveSession(user.id);
+      if (activeSession) {
+        setCurrentSession(activeSession);
+        const startTime = new Date(activeSession.startTime);
         const elapsed = Date.now() - startTime.getTime();
         setElapsedTime(elapsed);
         setIsRunning(true);
@@ -153,18 +113,8 @@ const ParentHomeScreen = ({ navigation }) => {
 
   const startKMC = async () => {
     try {
-      const sessionsRef = collection(db, 'sessions');
-      const newSession = {
-        parentId: user.id,
-        babyId: user.babyId || null,
-        startTime: Timestamp.now(),
-        endTime: null,
-        duration: 0,
-        isActive: true,
-      };
-
-      const docRef = await addDoc(sessionsRef, newSession);
-      setCurrentSession({ id: docRef.id, ...newSession });
+      const newSession = await startSession(user.id, user.babyId || null);
+      setCurrentSession(newSession);
       setElapsedTime(0);
       setIsRunning(true);
     } catch (error) {
@@ -177,15 +127,8 @@ const ParentHomeScreen = ({ navigation }) => {
     if (!currentSession) return;
 
     try {
-      const sessionRef = doc(db, 'sessions', currentSession.id);
-      const endTime = Timestamp.now();
       const duration = elapsedTime;
-
-      await updateDoc(sessionRef, {
-        endTime,
-        duration,
-        isActive: false,
-      });
+      await stopSession(currentSession.id, duration);
 
       setIsRunning(false);
       setCurrentSession(null);
@@ -224,7 +167,7 @@ const ParentHomeScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>KMC Tracking</Text>
+        <Text style={styles.headerTitle}>Niloufer KMC</Text>
         <TouchableOpacity onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
@@ -257,7 +200,7 @@ const ParentHomeScreen = ({ navigation }) => {
             </Text>
             <Text style={styles.timerText}>{formatDuration(elapsedTime)}</Text>
             {isRunning && (
-              <Text style={styles.timerSubtext}>Keep going! ❤️</Text>
+              <Text style={styles.timerSubtext}>Keep going!</Text>
             )}
           </View>
 

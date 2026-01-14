@@ -11,15 +11,12 @@ import {
 import { Card } from '../../components';
 import { COLORS, SIZES } from '../../config/theme';
 import { useAuth } from '../../context/AuthContext';
-import { db } from '../../config/firebase';
-import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
 import {
-  formatDurationText,
-  formatDate,
-  formatTime,
-  getTodayRange,
-  getWeekRange,
-} from '../../utils/helpers';
+  getSessionsByParent,
+  getTodaySessionsByParent,
+  getWeekSessionsByParent,
+} from '../../config/database';
+import { formatDurationText, formatDate, formatTime } from '../../utils/helpers';
 
 const ParentHistoryScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -35,47 +32,15 @@ const ParentHistoryScreen = ({ navigation }) => {
 
   const loadSessions = async () => {
     try {
-      const sessionsRef = collection(db, 'sessions');
-      let q;
+      let sessionsData = [];
 
       if (filter === 'today') {
-        const { start, end } = getTodayRange();
-        q = query(
-          sessionsRef,
-          where('parentId', '==', user.id),
-          where('startTime', '>=', Timestamp.fromDate(start)),
-          where('startTime', '<=', Timestamp.fromDate(end))
-        );
+        sessionsData = await getTodaySessionsByParent(user.id);
       } else if (filter === 'week') {
-        const { start, end } = getWeekRange();
-        q = query(
-          sessionsRef,
-          where('parentId', '==', user.id),
-          where('startTime', '>=', Timestamp.fromDate(start)),
-          where('startTime', '<=', Timestamp.fromDate(end))
-        );
+        sessionsData = await getWeekSessionsByParent(user.id);
       } else {
-        q = query(sessionsRef, where('parentId', '==', user.id));
+        sessionsData = await getSessionsByParent(user.id);
       }
-
-      const querySnapshot = await getDocs(q);
-      const sessionsData = [];
-      let totalDuration = 0;
-
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (!data.isActive && data.duration) {
-          sessionsData.push({ id: doc.id, ...data });
-          totalDuration += data.duration;
-        }
-      });
-
-      // Sort by startTime descending
-      sessionsData.sort((a, b) => {
-        const timeA = a.startTime?.toDate?.() || new Date(0);
-        const timeB = b.startTime?.toDate?.() || new Date(0);
-        return timeB - timeA;
-      });
 
       setSessions(sessionsData);
 
@@ -91,45 +56,25 @@ const ParentHistoryScreen = ({ navigation }) => {
 
   const calculateStats = async () => {
     try {
-      const sessionsRef = collection(db, 'sessions');
-      const { start: todayStart, end: todayEnd } = getTodayRange();
-      const { start: weekStart, end: weekEnd } = getWeekRange();
-
       // Today's total
-      const todayQuery = query(
-        sessionsRef,
-        where('parentId', '==', user.id),
-        where('startTime', '>=', Timestamp.fromDate(todayStart)),
-        where('startTime', '<=', Timestamp.fromDate(todayEnd))
-      );
-      const todaySnapshot = await getDocs(todayQuery);
+      const todaySessions = await getTodaySessionsByParent(user.id);
       let todayTotal = 0;
-      todaySnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.duration) todayTotal += data.duration;
+      todaySessions.forEach((session) => {
+        if (session.duration) todayTotal += session.duration;
       });
 
       // Week's total
-      const weekQuery = query(
-        sessionsRef,
-        where('parentId', '==', user.id),
-        where('startTime', '>=', Timestamp.fromDate(weekStart)),
-        where('startTime', '<=', Timestamp.fromDate(weekEnd))
-      );
-      const weekSnapshot = await getDocs(weekQuery);
+      const weekSessions = await getWeekSessionsByParent(user.id);
       let weekTotal = 0;
-      weekSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.duration) weekTotal += data.duration;
+      weekSessions.forEach((session) => {
+        if (session.duration) weekTotal += session.duration;
       });
 
       // All time total
-      const allQuery = query(sessionsRef, where('parentId', '==', user.id));
-      const allSnapshot = await getDocs(allQuery);
+      const allSessions = await getSessionsByParent(user.id);
       let allTotal = 0;
-      allSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.duration) allTotal += data.duration;
+      allSessions.forEach((session) => {
+        if (session.duration) allTotal += session.duration;
       });
 
       setStats({ today: todayTotal, week: weekTotal, total: allTotal });
@@ -144,8 +89,8 @@ const ParentHistoryScreen = ({ navigation }) => {
   };
 
   const renderSession = ({ item }) => {
-    const startTime = item.startTime?.toDate?.() || new Date();
-    const endTime = item.endTime?.toDate?.() || new Date();
+    const startTime = new Date(item.startTime);
+    const endTime = new Date(item.endTime);
 
     return (
       <Card style={styles.sessionCard}>
@@ -219,7 +164,7 @@ const ParentHistoryScreen = ({ navigation }) => {
       <FlatList
         data={sessions}
         renderItem={renderSession}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
@@ -230,7 +175,6 @@ const ParentHistoryScreen = ({ navigation }) => {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyEmoji}>📋</Text>
             <Text style={styles.emptyText}>No sessions recorded yet</Text>
             <Text style={styles.emptySubtext}>
               Start a KMC session to see it here
@@ -348,10 +292,6 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: 60,
-  },
-  emptyEmoji: {
-    fontSize: 60,
-    marginBottom: 16,
   },
   emptyText: {
     fontSize: SIZES.medium,

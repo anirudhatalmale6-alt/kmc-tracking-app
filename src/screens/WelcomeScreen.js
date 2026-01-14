@@ -11,6 +11,7 @@ const WelcomeScreen = ({ navigation }) => {
           <View style={styles.logoCircle}>
             <Text style={styles.logoEmoji}>👶</Text>
           </View>
+          <Text style={styles.hospital}>Niloufer Hospital</Text>
           <Text style={styles.title}>KMC Tracking</Text>
           <Text style={styles.subtitle}>Kangaroo Mother Care Monitor</Text>
         </View>
@@ -66,6 +67,12 @@ const styles = StyleSheet.create({
   },
   logoEmoji: {
     fontSize: 60,
+  },
+  hospital: {
+    fontSize: SIZES.large,
+    fontWeight: '600',
+    color: COLORS.primaryDark,
+    marginBottom: 4,
   },
   title: {
     fontSize: SIZES.xxlarge,

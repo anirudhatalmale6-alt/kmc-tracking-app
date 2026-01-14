@@ -10,8 +10,7 @@ import {
 } from 'react-native';
 import { Button, Input, Card } from '../../components';
 import { COLORS, SIZES } from '../../config/theme';
-import { db } from '../../config/firebase';
-import { collection, addDoc, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { getAllBabies, addBaby, addParent, addStaff } from '../../config/database';
 import { generatePIN, validateMobile } from '../../utils/helpers';
 
 const AdminPanelScreen = ({ navigation }) => {
@@ -44,19 +43,14 @@ const AdminPanelScreen = ({ navigation }) => {
 
   const loadBabies = async () => {
     try {
-      const babiesRef = collection(db, 'babies');
-      const snapshot = await getDocs(babiesRef);
-      const babiesData = [];
-      snapshot.forEach((doc) => {
-        babiesData.push({ id: doc.id, ...doc.data() });
-      });
+      const babiesData = await getAllBabies();
       setBabies(babiesData);
     } catch (error) {
       console.error('Error loading babies:', error);
     }
   };
 
-  const addBaby = async () => {
+  const handleAddBaby = async () => {
     const newErrors = {};
     if (!babyName.trim()) newErrors.babyName = 'Baby name is required';
     if (!uhid.trim()) newErrors.uhid = 'UHID is required';
@@ -68,14 +62,7 @@ const AdminPanelScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const babiesRef = collection(db, 'babies');
-      await addDoc(babiesRef, {
-        name: babyName.trim(),
-        uhid: uhid.trim(),
-        bedNo: bedNo.trim(),
-        createdAt: Timestamp.now(),
-      });
-
+      await addBaby(babyName.trim(), uhid.trim(), bedNo.trim());
       Alert.alert('Success', 'Baby added successfully!');
       setBabyName('');
       setUhid('');
@@ -83,14 +70,14 @@ const AdminPanelScreen = ({ navigation }) => {
       setErrors({});
       loadBabies();
     } catch (error) {
-      Alert.alert('Error', 'Failed to add baby. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to add baby. Please try again.');
       console.error('Error adding baby:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const addParent = async () => {
+  const handleAddParent = async () => {
     const newErrors = {};
     if (!motherName.trim()) newErrors.motherName = 'Mother name is required';
     if (!mobile) newErrors.mobile = 'Mobile number is required';
@@ -102,25 +89,10 @@ const AdminPanelScreen = ({ navigation }) => {
       return;
     }
 
-    // Check if mobile already exists
-    const parentsRef = collection(db, 'parents');
-    const existingQuery = query(parentsRef, where('mobile', '==', mobile));
-    const existingSnapshot = await getDocs(existingQuery);
-    if (!existingSnapshot.empty) {
-      Alert.alert('Error', 'A parent with this mobile number already exists.');
-      return;
-    }
-
     setLoading(true);
     try {
       const pin = generatePIN();
-      await addDoc(parentsRef, {
-        motherName: motherName.trim(),
-        mobile: mobile,
-        pin: pin,
-        babyId: selectedBabyId,
-        createdAt: Timestamp.now(),
-      });
+      await addParent(motherName.trim(), mobile, pin, selectedBabyId);
 
       setGeneratedPIN(pin);
       Alert.alert(
@@ -134,14 +106,14 @@ const AdminPanelScreen = ({ navigation }) => {
       setSelectedBabyId('');
       setErrors({});
     } catch (error) {
-      Alert.alert('Error', 'Failed to add parent. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to add parent. Please try again.');
       console.error('Error adding parent:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const addStaff = async () => {
+  const handleAddStaff = async () => {
     const newErrors = {};
     if (!staffName.trim()) newErrors.staffName = 'Name is required';
     if (!staffUsername.trim()) newErrors.staffUsername = 'Username is required';
@@ -154,27 +126,9 @@ const AdminPanelScreen = ({ navigation }) => {
       return;
     }
 
-    // Check if username already exists
-    const staffRef = collection(db, 'staff');
-    const existingQuery = query(
-      staffRef,
-      where('username', '==', staffUsername.trim().toLowerCase())
-    );
-    const existingSnapshot = await getDocs(existingQuery);
-    if (!existingSnapshot.empty) {
-      Alert.alert('Error', 'This username is already taken.');
-      return;
-    }
-
     setLoading(true);
     try {
-      await addDoc(staffRef, {
-        name: staffName.trim(),
-        username: staffUsername.trim().toLowerCase(),
-        password: staffPassword,
-        isAdmin: isAdmin,
-        createdAt: Timestamp.now(),
-      });
+      await addStaff(staffName.trim(), staffUsername.trim(), staffPassword, isAdmin);
 
       Alert.alert('Success', 'Staff member added successfully!');
       setStaffName('');
@@ -183,7 +137,7 @@ const AdminPanelScreen = ({ navigation }) => {
       setIsAdmin(false);
       setErrors({});
     } catch (error) {
-      Alert.alert('Error', 'Failed to add staff. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to add staff. Please try again.');
       console.error('Error adding staff:', error);
     } finally {
       setLoading(false);
@@ -258,7 +212,7 @@ const AdminPanelScreen = ({ navigation }) => {
 
             <Button
               title="Add Baby"
-              onPress={addBaby}
+              onPress={handleAddBaby}
               loading={loading}
               style={styles.submitButton}
             />
@@ -329,7 +283,7 @@ const AdminPanelScreen = ({ navigation }) => {
 
             <Button
               title="Create Parent Account"
-              onPress={addParent}
+              onPress={handleAddParent}
               loading={loading}
               style={styles.submitButton}
               disabled={babies.length === 0}
@@ -398,7 +352,7 @@ const AdminPanelScreen = ({ navigation }) => {
 
             <Button
               title="Add Staff Member"
-              onPress={addStaff}
+              onPress={handleAddStaff}
               loading={loading}
               style={styles.submitButton}
             />

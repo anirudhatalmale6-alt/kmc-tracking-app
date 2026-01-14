@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "KMCTrackingApp",
-    "slug": "KMCTrackingApp",
+    "name": "Niloufer KMC Tracking",
+    "slug": "niloufer-kmc-tracking",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,17 +10,19 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#E91E63"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.niloufer.kmctracking"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#E91E63"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.niloufer.kmctracking"
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -10,15 +10,13 @@ import {
 } from 'react-native';
 import { Card } from '../../components';
 import { COLORS, SIZES } from '../../config/theme';
-import { db } from '../../config/firebase';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import {
-  formatDurationText,
-  formatDate,
-  formatTime,
-  getTodayRange,
-  getWeekRange,
-} from '../../utils/helpers';
+  getParentsByBabyId,
+  getSessionsByBaby,
+  getTodaySessionsByBaby,
+  getWeekSessionsByBaby,
+} from '../../config/database';
+import { formatDurationText, formatDate, formatTime } from '../../utils/helpers';
 
 const BabyDetailsScreen = ({ route, navigation }) => {
   const { baby } = route.params;
@@ -34,54 +32,31 @@ const BabyDetailsScreen = ({ route, navigation }) => {
   const loadDetails = async () => {
     try {
       // Load parent info
-      const parentsRef = collection(db, 'parents');
-      const parentQuery = query(parentsRef, where('babyId', '==', baby.id));
-      const parentSnapshot = await getDocs(parentQuery);
-      if (!parentSnapshot.empty) {
-        const parentDoc = parentSnapshot.docs[0];
-        setParent({ id: parentDoc.id, ...parentDoc.data() });
+      const parents = await getParentsByBabyId(baby.id);
+      if (parents.length > 0) {
+        setParent(parents[0]);
       }
 
       // Load sessions
-      const sessionsRef = collection(db, 'sessions');
-      const sessionsQuery = query(sessionsRef, where('babyId', '==', baby.id));
-      const sessionsSnapshot = await getDocs(sessionsQuery);
-
-      const sessionsData = [];
-      let totalDuration = 0;
-
-      sessionsSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (!data.isActive && data.duration) {
-          sessionsData.push({ id: doc.id, ...data });
-          totalDuration += data.duration;
-        }
-      });
-
-      // Sort by startTime descending
-      sessionsData.sort((a, b) => {
-        const timeA = a.startTime?.toDate?.() || new Date(0);
-        const timeB = b.startTime?.toDate?.() || new Date(0);
-        return timeB - timeA;
-      });
-
+      const sessionsData = await getSessionsByBaby(baby.id);
       setSessions(sessionsData);
 
       // Calculate stats
-      const { start: todayStart, end: todayEnd } = getTodayRange();
-      const { start: weekStart, end: weekEnd } = getWeekRange();
-
+      const todaySessions = await getTodaySessionsByBaby(baby.id);
       let todayTotal = 0;
-      let weekTotal = 0;
+      todaySessions.forEach((session) => {
+        if (session.duration) todayTotal += session.duration;
+      });
 
+      const weekSessions = await getWeekSessionsByBaby(baby.id);
+      let weekTotal = 0;
+      weekSessions.forEach((session) => {
+        if (session.duration) weekTotal += session.duration;
+      });
+
+      let totalDuration = 0;
       sessionsData.forEach((session) => {
-        const startTime = session.startTime?.toDate?.() || new Date(0);
-        if (startTime >= todayStart && startTime <= todayEnd) {
-          todayTotal += session.duration;
-        }
-        if (startTime >= weekStart && startTime <= weekEnd) {
-          weekTotal += session.duration;
-        }
+        if (session.duration) totalDuration += session.duration;
       });
 
       setStats({
@@ -98,8 +73,8 @@ const BabyDetailsScreen = ({ route, navigation }) => {
   };
 
   const renderSession = ({ item }) => {
-    const startTime = item.startTime?.toDate?.() || new Date();
-    const endTime = item.endTime?.toDate?.() || new Date();
+    const startTime = new Date(item.startTime);
+    const endTime = new Date(item.endTime);
 
     return (
       <View style={styles.sessionItem}>
@@ -143,18 +118,6 @@ const BabyDetailsScreen = ({ route, navigation }) => {
               <Text style={styles.detailLabel}>Bed No</Text>
               <Text style={styles.detailValue}>{baby.bedNo || 'N/A'}</Text>
             </View>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>Date of Birth</Text>
-              <Text style={styles.detailValue}>
-                {baby.dob ? formatDate(baby.dob) : 'N/A'}
-              </Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>Admission Date</Text>
-              <Text style={styles.detailValue}>
-                {baby.admissionDate ? formatDate(baby.admissionDate) : 'N/A'}
-              </Text>
-            </View>
           </View>
         </Card>
 
@@ -166,7 +129,7 @@ const BabyDetailsScreen = ({ route, navigation }) => {
               <Text style={styles.parentName}>
                 {parent.motherName || 'Mother'}
               </Text>
-              <Text style={styles.parentMobile}>📱 {parent.mobile}</Text>
+              <Text style={styles.parentMobile}>{parent.mobile}</Text>
             </View>
           </Card>
         )}
@@ -207,7 +170,7 @@ const BabyDetailsScreen = ({ route, navigation }) => {
             <FlatList
               data={sessions.slice(0, 10)}
               renderItem={renderSession}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item) => item.id.toString()}
               scrollEnabled={false}
             />
           ) : (
